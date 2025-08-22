@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stranger Call - Secure Authentication</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { 
+      background-color: #0d1117; 
+      color: #e6edf3; 
+      font-family: 'Inter', sans-serif; 
+      background-image: 
+        radial-gradient(circle at 15% 50%, rgba(34, 197, 94, 0.09) 0%, transparent 25%),
+        radial-gradient(circle at 85% 30%, rgba(34, 197, 94, 0.09) 0%, transparent 25%);
+    }
+    .card { 
+      background: #161b22; 
+      border-radius: 16px; 
+      padding: 2.5rem; 
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); 
+      border: 1px solid #2d3748;
+    }
+    .btn-primary { 
+      background: #22c55e; 
+      color: black; 
+      font-weight: 600; 
+      transition: all 0.3s; 
+    }
+    .btn-primary:hover { 
+      background: #16a34a; 
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(34, 197, 94, 0.2);
+    }
+    .btn-primary:disabled {
+      background: #374151;
+      color: #9ca3af;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    .loading { 
+      border: 3px solid #1f2937; 
+      border-top: 3px solid #22c55e; 
+      border-radius: 50%; 
+      width: 24px; 
+      height: 24px; 
+      animation: spin 1s linear infinite; 
+      margin: auto;
+    }
+    @keyframes spin { 
+      0% { transform: rotate(0deg); } 
+      100% { transform: rotate(360deg); } 
+    }
+    .input-field {
+      transition: all 0.3s;
+    }
+    .input-field:focus {
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3);
+    }
+    .shake-animation {
+      animation: shake 0.5s;
+    }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+      20%, 40%, 60%, 80% { transform: translateX(5px); }
+    }
+    .password-container {
+      position: relative;
+    }
+    .password-toggle {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      cursor: pointer;
+      color: #9ca3af;
+      transition: color 0.2s;
+    }
+    .password-toggle:hover {
+      color: #22c55e;
+    }
+    .tab-button {
+      transition: all 0.3s;
+      padding-bottom: 0.75rem;
+      position: relative;
+    }
+    .tab-button::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 0;
+      height: 2px;
+      background-color: #22c55e;
+      transition: width 0.3s;
+    }
+    .tab-button.text-green-400::after {
+      width: 100%;
+    }
+    .profile-upload {
+      transition: all 0.3s;
+    }
+    .profile-upload:hover {
+      transform: scale(1.05);
+    }
+    .step-indicator {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+    }
+    .step {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background-color: #374151;
+      margin: 0 5px;
+    }
+    .step.active {
+      background-color: #22c55e;
+      transform: scale(1.2);
+    }
+  </style>
+  <!-- Firebase SDKs -->
+  <script type="module">
+    // Firebase import
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+    
+    // Firebase Config
+    const firebaseConfig = {
+      apiKey: "AIzaSyAwB8JWKIRK6Bkat-NdM6OyVAvdrBk5cmM",
+      authDomain: "capturedeep-126bf.firebaseapp.com",
+      databaseURL: "https://capturedeep-126bf-default-rtdb.firebaseio.com",
+      projectId: "capturedeep-126bf",
+      storageBucket: "capturedeep-126bf.appspot.com",
+      messagingSenderId: "527347157327",
+      appId: "1:527347157327:web:d7db7bb6d0fe021547dd3a",
+      measurementId: "G-VZEFR8X5BN"
+    };
+    
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const storage = getStorage(app);
+    
+    // DOM Elements
+    const elements = {
+      signinTab: document.getElementById("signinTab"),
+      signupTab: document.getElementById("signupTab"),
+      signinForm: document.getElementById("signinForm"),
+      signupStep1Form: document.getElementById("signupStep1Form"),
+      signupStep2Form: document.getElementById("signupStep2Form"),
+      errorContainer: document.getElementById("errorContainer"),
+      errorMessage: document.getElementById("errorMessage"),
+      step1: document.getElementById("step1"),
+      step2: document.getElementById("step2")
+    };
+    
+    // Tab Switching
+    function switchTab(tab) {
+      const isSignIn = tab === 'signin';
+      
+      // Update form visibility
+      elements.signinForm.classList.toggle('hidden', !isSignIn);
+      elements.signupStep1Form.classList.toggle('hidden', isSignIn);
+      elements.signupStep2Form.classList.add('hidden'); // Always hide step2 when switching tabs
+      
+      // Update tab styles
+      elements.signinTab.classList.toggle('text-green-400', isSignIn);
+      elements.signinTab.classList.toggle('border-green-400', isSignIn);
+      elements.signinTab.classList.toggle('text-gray-400', !isSignIn);
+      
+      elements.signupTab.classList.toggle('text-green-400', !isSignIn);
+      elements.signupTab.classList.toggle('border-green-400', !isSignIn);
+      elements.signupTab.classList.toggle('text-gray-400', isSignIn);
+      
+      // Reset step indicators
+      elements.step1.classList.add('active');
+      elements.step2.classList.remove('active');
+      
+      // Clear errors when switching tabs
+      hideError();
+    }
+    
+    // Show signup step 2
+    function showSignupStep2() {
+      elements.signupStep1Form.classList.add('hidden');
+      elements.signupStep2Form.classList.remove('hidden');
+      elements.step1.classList.remove('active');
+      elements.step2.classList.add('active');
+    }
+    
+    // Show signup step 1
+    function showSignupStep1() {
+      elements.signupStep1Form.classList.remove('hidden');
+      elements.signupStep2Form.classList.add('hidden');
+      elements.step1.classList.add('active');
+      elements.step2.classList.remove('active');
+    }
+    
+    // Error Handling
+    function showError(message) {
+      elements.errorMessage.textContent = message;
+      elements.errorContainer.classList.remove('hidden');
+      setTimeout(() => {
+        elements.errorContainer.classList.add('shake-animation');
+        setTimeout(() => {
+          elements.errorContainer.classList.remove('shake-animation');
+        }, 500);
+      }, 10);
+    }
+    
+    function hideError() {
+      elements.errorContainer.classList.add('hidden');
+    }
+    
+    // Form Validation
+    function validateEmail(email) {
+      const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      return re.test(email);
+    }
+    
+    function validatePassword(password) {
+      return password.length >= 6;
+    }
+    
+    function validateName(name) {
+      return name.trim().length >= 2;
+    }
+    
+    function validateDOB(dob) {
+      const birthDate = new Date(dob);
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      
+      return age >= 13;
+    }
+    
+    // Form Submission Handlers
+    async function handleSignUpStep1(e) {
+      e.preventDefault();
+      
+      // Get form values
+      const email = document.getElementById("signupEmail").value.trim();
+      const password = document.getElementById("signupPassword").value;
+      
+      // Validation
+      if (!validateEmail(email)) {
+        return showError("Please enter a valid email address");
+      }
+      
+      if (!validatePassword(password)) {
+        return showError("Password must be at least 6 characters long");
+      }
+      
+      // Show loading state
+      document.getElementById("signupStep1Loader").classList.remove("hidden");
+      document.getElementById("signupStep1Button").disabled = true;
+      
+      try {
+        // Create user account
+        await createUserWithEmailAndPassword(auth, email, password);
+        
+        // User is now logged in, proceed to step 2
+        showSignupStep2();
+      } catch (err) {
+        // Handle specific Firebase errors
+        if (err.code === 'auth/email-already-in-use') {
+          showError("This email is already registered. Please sign in instead.");
+        } else if (err.code === 'auth/weak-password') {
+          showError("Password is too weak. Please choose a stronger password.");
+        } else {
+          showError("Error: " + err.message);
+        }
+      } finally {
+        // Hide loading state
+        document.getElementById("signupStep1Loader").classList.add("hidden");
+        document.getElementById("signupStep1Button").disabled = false;
+      }
+    }
+    
+    async function handleSignUpStep2(e) {
+      e.preventDefault();
+      
+      // Get current user
+      const user = auth.currentUser;
+      if (!user) {
+        showError("User not authenticated. Please try again.");
+        showSignupStep1();
+        return;
+      }
+      
+      // Get form values
+      const name = document.getElementById("signupName").value.trim();
+      const dob = document.getElementById("signupDob").value;
+      const gender = document.getElementById("signupGender").value;
+      const file = document.getElementById("profilePic").files[0];
+      
+      // Validation
+      if (!validateName(name)) {
+        return showError("Please enter a valid name (at least 2 characters)");
+      }
+      
+      if (!validateDOB(dob)) {
+        return showError("You must be at least 13 years old to register");
+      }
+      
+      // Show loading state
+      document.getElementById("signupStep2Loader").classList.remove("hidden");
+      document.getElementById("signupStep2Button").disabled = true;
+      
+      try {
+        // Upload profile picture if selected
+        let photoURL = "";
+        if (file) {
+          const storageRef = ref(storage, "profiles/" + user.uid);
+          await uploadBytes(storageRef, file);
+          photoURL = await getDownloadURL(storageRef);
+        }
+        
+        // Update user profile
+        await updateProfile(user, { displayName: name, photoURL: photoURL });
+        
+        // Save user data to Firestore
+        await setDoc(doc(db, "users", user.uid), {
+          uid: user.uid,
+          name: name,
+          dob: dob,
+          gender: gender,
+          email: user.email,
+          photoURL: photoURL,
+          createdAt: new Date()
+        });
+        
+        // Success - redirect to dashboard
+        window.location.href = "dashboard.html";
+      } catch (err) {
+        showError("Error: " + err.message);
+      } finally {
+        // Hide loading state
+        document.getElementById("signupStep2Loader").classList.add("hidden");
+        document.getElementById("signupStep2Button").disabled = false;
+      }
+    }
+    
+    async function handleSignIn(e) {
+      e.preventDefault();
+      
+      // Get form values
+      const email = document.getElementById("signinEmail").value.trim();
+      const password = document.getElementById("signinPassword").value;
+      
+      // Validation
+      if (!validateEmail(email)) {
+        return showError("Please enter a valid email address");
+      }
+      
+      if (!validatePassword(password)) {
+        return showError("Please enter your password");
+      }
+      
+      // Show loading state
+      document.getElementById("signinLoader").classList.remove("hidden");
+      document.getElementById("signinButton").disabled = true;
+      
+      try {
+        // Sign in user
+        await signInWithEmailAndPassword(auth, email, password);
+        
+        // Success - redirect to dashboard
+        window.location.href = "dashboard.html";
+      } catch (err) {
+        // Handle specific Firebase errors
+        if (err.code === 'auth/user-not-found') {
+          showError("No account found with this email. Please sign up first.");
+        } else if (err.code === 'auth/wrong-password') {
+          showError("Incorrect password. Please try again.");
+        } else {
+          showError("Error: " + err.message);
+        }
+      } finally {
+        // Hide loading state
+        document.getElementById("signinLoader").classList.add("hidden");
+        document.getElementById("signinButton").disabled = false;
+      }
+    }
+    
+    // Password Visibility Toggle
+    function togglePasswordVisibility(inputId, buttonId) {
+      const passwordInput = document.getElementById(inputId);
+      const toggleButton = document.getElementById(buttonId);
+      
+      if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        toggleButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
+      } else {
+        passwordInput.type = 'password';
+        toggleButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>';
+      }
+    }
+    
+    // Initialize the application
+    function init() {
+      // Check if user is already logged in
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          // Check if user has completed profile
+          if (window.location.pathname.endsWith('index.html') || window.location.pathname === '/') {
+            window.location.href = "dashboard.html";
+          }
+        }
+      });
+      
+      // Tab event listeners
+      elements.signinTab.addEventListener("click", () => switchTab('signin'));
+      elements.signupTab.addEventListener("click", () => switchTab('signup'));
+      
+      // Form event listeners
+      document.getElementById("signupStep1Form").addEventListener("submit", handleSignUpStep1);
+      document.getElementById("signupStep2Form").addEventListener("submit", handleSignUpStep2);
+      document.getElementById("signinForm").addEventListener("submit", handleSignIn);
+      
+      // Back button event listener
+      document.getElementById("backToStep1").addEventListener("click", showSignupStep1);
+      
+      // Password toggle event listeners
+      document.getElementById("toggleSignupPassword").addEventListener("click", () => {
+        togglePasswordVisibility("signupPassword", "toggleSignupPassword");
+      });
+      
+      document.getElementById("toggleSigninPassword").addEventListener("click", () => {
+        togglePasswordVisibility("signinPassword", "toggleSigninPassword");
+      });
+      
+      // Profile picture preview
+      document.getElementById("profilePic").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            document.getElementById("previewImg").src = reader.result;
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+      
+      // Clear error when user starts typing
+      const allInputs = document.querySelectorAll('input');
+      allInputs.forEach(input => {
+        input.addEventListener('input', hideError);
+      });
+    }
+    
+    // Initialize when DOM is loaded
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+  <div class="card w-full max-w-md">
+    <div class="text-center mb-2">
+      <h1 class="text-2xl font-bold text-green-400 mb-1">Stranger Call</h1>
+      <p class="text-gray-400 text-sm">Connect with people around the world</p>
+    </div>
+    
+    <!-- Error Message Container -->
+    <div id="errorContainer" class="hidden bg-red-900/30 border border-red-700 text-red-200 px-4 py-3 rounded-lg mb-4 text-sm">
+      <span id="errorMessage"></span>
+    </div>
+    
+    <div class="flex justify-center space-x-8 mb-6">
+      <button id="signinTab" class="tab-button text-lg font-semibold text-green-400">Sign In</button>
+      <button id="signupTab" class="tab-button text-lg font-semibold text-gray-400">Sign Up</button>
+    </div>
+
+    <!-- Sign In Form -->
+    <form id="signinForm" class="space-y-4">
+      <div>
+        <input id="signinEmail" type="email" placeholder="Email address" required 
+               class="input-field w-full px-4 py-3 rounded-lg bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500">
+      </div>
+      <div class="password-container">
+        <input id="signinPassword" type="password" placeholder="Password" required 
+               class="input-field w-full px-4 py-3 rounded-lg bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 pr-12">
+        <button type="button" id="toggleSigninPassword" class="password-toggle">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+          </svg>
+        </button>
+      </div>
+      <button id="signinButton" type="submit" class="btn-primary w-full py-3 rounded-lg text-base flex items-center justify-center">
+        <span>Sign In</span>
+      </button>
+      <div id="signinLoader" class="hidden mt-3"><div class="loading"></div></div>
+      
+      <div class="text-center text-sm text-gray-400 mt-4">
+        <a href="#" class="text-green-400 hover:text-green-300 transition-colors">Forgot password?</a>
+      </div>
+    </form>
+
+    <!-- Sign Up Step 1 Form (Email & Password) -->
+    <form id="signupStep1Form" class="hidden space-y-4">
+      <div class="step-indicator">
+        <div id="step1" class="step active"></div>
+        <div id="step2" class="step"></div>
+      </div>
+      
+      <div>
+        <input id="signupEmail" type="email" placeholder="Email address" required 
+               class="input-field w-full px-4 py-3 rounded-lg bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500">
+      </div>
+      
+      <div class="password-container">
+        <input id="signupPassword" type="password" placeholder="Password (min. 6 characters)" required 
+               class="input-field w-full px-4 py-3 rounded-lg bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 pr-12">
+        <button type="button" id="toggleSignupPassword" class="password-toggle">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+          </svg>
+        </button>
+      </div>
+      
+      <button id="signupStep1Button" type="submit" class="btn-primary w-full py-3 rounded-lg text-base flex items-center justify-center">
+        <span>Continue</span>
+      </button>
+      <div id="signupStep1Loader" class="hidden mt-3"><div class="loading"></div></div>
+      
+      <div class="text-xs text-gray-400 text-center mt-4">
+        By signing up, you agree to our <a href="#" class="text-green-400 hover:text-green-300">Terms of Service</a> and <a href="#" class="text-green-400 hover:text-green-300">Privacy Policy</a>
+      </div>
+    </form>
+
+    <!-- Sign Up Step 2 Form (Profile Details) -->
+    <form id="signupStep2Form" class="hidden space-y-4">
+      <div class="step-indicator">
+        <div id="step1" class="step"></div>
+        <div id="step2" class="step active"></div>
+      </div>
+      
+      <div class="flex justify-center">
+        <div class="relative w-28 h-28">
+          <img id="previewImg" 
+               src="https://www.svgrepo.com/show/452030/avatar-default.svg" 
+               class="w-full h-full rounded-full object-cover border-2 border-green-500 profile-upload">
+          <label for="profilePic" 
+                 class="absolute bottom-0 right-0 bg-green-500 p-2 rounded-full cursor-pointer hover:bg-green-400 transition-colors shadow-md">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="black" viewBox="0 0 24 24" class="w-4 h-4">
+              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 
+                       7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 
+                       1.003 0 0 0-1.42 0l-1.83 1.83 3.75 
+                       3.75 1.84-1.82z"/>
+            </svg>
+          </label>
+          <input type="file" id="profilePic" accept="image/*" class="hidden">
+        </div>
+      </div>
+      
+      <div>
+        <input id="signupName" type="text" placeholder="Full name" required 
+               class="input-field w-full px-4 py-3 rounded-lg bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500">
+      </div>
+      
+      <div>
+        <label class="text-gray-400 text-sm block mb-1 ml-1">Date of Birth</label>
+        <input id="signupDob" type="date" required 
+               class="input-field w-full px-4 py-3 rounded-lg bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+      </div>
+      
+      <div>
+        <label class="text-gray-400 text-sm block mb-1 ml-1">Gender</label>
+        <select id="signupGender" required
+                class="input-field w-full px-4 py-3 rounded-lg bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+          <option value="" disabled selected>Select gender</option>
+          <option value="male">Male</option>
+          <option value="female">Female</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      
+      <div class="flex space-x-3">
+        <button type="button" id="backToStep1" class="w-1/3 py-3 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-colors">
+          Back
+        </button>
+        <button id="signupStep2Button" type="submit" class="btn-primary w-2/3 py-3 rounded-lg text-base flex items-center justify-center">
+          <span>Complete Profile</span>
+        </button>
+      </div>
+      <div id="signupStep2Loader" class="hidden mt-3"><div class="loading"></div></div>
+    </form>
+  </div>
+</body>
+</html>
